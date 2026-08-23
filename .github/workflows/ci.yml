@@ -1,1 +1,89 @@
+name: Android CI
 
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct Android project layout
+        shell: bash
+        run: |
+          mkdir -p tools
+          mkdir -p fixtures
+          mkdir -p app/src/main/java/ai/youvan/stereomultistability
+          mkdir -p app/src/test/java/ai/youvan/stereomultistability
+          mkdir -p app/src/main
+
+          cp validate_geometry.py tools/validate_geometry.py
+          cp validate_release.py tools/validate_release.py
+          cp parent_manifest.csv fixtures/parent_manifest.csv
+
+          cp MainActivity.java app/src/main/java/ai/youvan/stereomultistability/
+          cp SessionStore.java app/src/main/java/ai/youvan/stereomultistability/
+          cp StereoMath.java app/src/main/java/ai/youvan/stereomultistability/
+          cp StereoView.java app/src/main/java/ai/youvan/stereomultistability/
+          cp StimulusCatalog.java app/src/main/java/ai/youvan/stereomultistability/
+          cp StimulusSpec.java app/src/main/java/ai/youvan/stereomultistability/
+          cp TrialPlanner.java app/src/main/java/ai/youvan/stereomultistability/
+
+          cp StimulusCatalogTest.java app/src/test/java/ai/youvan/stereomultistability/
+          cp TrialPlannerTest.java app/src/test/java/ai/youvan/stereomultistability/
+
+          cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+          cp proguard-rules.pro app/proguard-rules.pro
+
+          APP_BUILD=$(grep -l "applicationId 'ai.youvan.stereomultistability'" build*.gradle | head -n 1)
+          ROOT_BUILD=$(grep -l "version '9.3.0' apply false" build*.gradle | head -n 1)
+
+          echo "App build file: $APP_BUILD"
+          echo "Root build file: $ROOT_BUILD"
+
+          test -n "$APP_BUILD"
+          test -n "$ROOT_BUILD"
+
+          cp "$APP_BUILD" /tmp/app-build.gradle
+          cp "$ROOT_BUILD" /tmp/root-build.gradle
+
+          cp /tmp/app-build.gradle app/build.gradle
+          cp /tmp/root-build.gradle build.gradle
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate all 289 parent-manifest parameter fixtures
+        run: python tools/validate_geometry.py
+
+      - name: Validate release-integrity invariants
+        run: python tools/validate_release.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Unit tests and debug APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stereo-multistability-android-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
