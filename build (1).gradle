@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ai.youvan.stereomultistability'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'ai.youvan.stereomultistability'
+        minSdk 26
+        targetSdk 36
+        versionCode 3
+        versionName '0.1.2'
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv('SMA_KEYSTORE_PATH')
+            if (ks != null && !ks.isEmpty()) {
+                storeFile file(ks)
+                storePassword System.getenv('SMA_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('SMA_KEY_ALIAS')
+                keyPassword System.getenv('SMA_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+            if (System.getenv('SMA_KEYSTORE_PATH')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    sourceSets {
+        test {
+            resources.srcDir rootProject.file('fixtures')
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
