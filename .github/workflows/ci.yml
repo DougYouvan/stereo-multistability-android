@@ -12,21 +12,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Reconstruct Android project layout
         shell: bash
         run: |
+          set -euo pipefail
+
+          echo "Reconstructing directory structure from flattened GitHub upload..."
+
           mkdir -p tools
           mkdir -p fixtures
           mkdir -p app/src/main/java/ai/youvan/stereomultistability
           mkdir -p app/src/test/java/ai/youvan/stereomultistability
           mkdir -p app/src/main
+          mkdir -p .github/workflows
 
+          # Validation and provenance files
           cp validate_geometry.py tools/validate_geometry.py
           cp validate_release.py tools/validate_release.py
           cp parent_manifest.csv fixtures/parent_manifest.csv
 
+          # Release workflow required by validate_release.py
+          cp release.yml .github/workflows/release.yml
+
+          # Android application sources
           cp MainActivity.java app/src/main/java/ai/youvan/stereomultistability/
           cp SessionStore.java app/src/main/java/ai/youvan/stereomultistability/
           cp StereoMath.java app/src/main/java/ai/youvan/stereomultistability/
@@ -35,28 +46,38 @@ jobs:
           cp StimulusSpec.java app/src/main/java/ai/youvan/stereomultistability/
           cp TrialPlanner.java app/src/main/java/ai/youvan/stereomultistability/
 
+          # Unit tests
           cp StimulusCatalogTest.java app/src/test/java/ai/youvan/stereomultistability/
           cp TrialPlannerTest.java app/src/test/java/ai/youvan/stereomultistability/
 
+          # Android manifest and ProGuard rules
           cp AndroidManifest.xml app/src/main/AndroidManifest.xml
           cp proguard-rules.pro app/proguard-rules.pro
 
-          APP_BUILD=$(grep -l "applicationId 'ai.youvan.stereomultistability'" build*.gradle | head -n 1)
-          ROOT_BUILD=$(grep -l "version '9.3.0' apply false" build*.gradle | head -n 1)
+          # The browser upload flattened both Gradle files.
+          # Identify them by their contents.
+          APP_BUILD="$(grep -l "applicationId 'ai.youvan.stereomultistability'" build*.gradle | head -n 1)"
+          ROOT_BUILD="$(grep -l "version '9.3.0' apply false" build*.gradle | head -n 1)"
 
-          echo "App build file: $APP_BUILD"
-          echo "Root build file: $ROOT_BUILD"
+          echo "Detected app Gradle file:  $APP_BUILD"
+          echo "Detected root Gradle file: $ROOT_BUILD"
 
           test -n "$APP_BUILD"
           test -n "$ROOT_BUILD"
 
+          # Preserve both before replacing root build.gradle.
           cp "$APP_BUILD" /tmp/app-build.gradle
           cp "$ROOT_BUILD" /tmp/root-build.gradle
 
           cp /tmp/app-build.gradle app/build.gradle
           cp /tmp/root-build.gradle build.gradle
 
-      - uses: actions/setup-python@v5
+          echo
+          echo "Resulting project:"
+          find app tools fixtures .github/workflows -maxdepth 6 -type f | sort
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -66,24 +87,42 @@ jobs:
       - name: Validate release-integrity invariants
         run: python tools/validate_release.py
 
-      - uses: actions/setup-java@v4
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle 9.5.0
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
 
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android API 36 and Build Tools
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Unit tests and debug APK
-        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Run unit tests and build debug APK
+        run: |
+          gradle --no-daemon \
+            :app:testDebugUnitTest \
+            :app:assembleDebug
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify APK exists
+        shell: bash
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: stereo-multistability-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
